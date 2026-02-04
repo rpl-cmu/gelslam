@@ -1,0 +1,36 @@
+# Configuration of the Device
+device_config:
+  # Device Name
+  device_name: "GelSight Mini"
+  # Each pixel represents how many millimeters
+  ppmm: 0.0634
+  # Resized image width and height
+  imgh: 240
+  imgw: 320
+  # Raw image width, height, and framerate
+  raw_imgh: 2464
+  raw_imgw: 3280
+  framerate: 25
+  # Path to calibration model (absolute, or relative to this config file)
+  # Calibration instruction: https://github.com/joehjhuang/gs_sdk/blob/master/calibration/README.md
+  calibration_model_path: "../resources/example_calibration/model/nnmodel.pth"
+
+# Configuration of how contact mask is thresholded
+contact_mask_config:
+  color_dist_threshold: 15
+  height_threshold: 0.2
+
+# GelSLAM configuration
+gelslam_config:
+  # Configuration of how GelSLAM tracks
+  track_config:
+    contact_threshold: 500
+    scr_threshold: 0.3
+    ccs_threshold: 0.7
+  # Configuration of how GelSLAM builds pose graph and loop closure
+  pose_graph_config:
+    coverage_graph_overlap_threshold: 50
+    min_sift_inliers: 8
+    scr_threshold: 0.3
+    ccs_threshold: 0.7
+

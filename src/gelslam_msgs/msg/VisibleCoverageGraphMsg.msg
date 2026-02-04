@@ -1,0 +1,1 @@
+gelslam_msgs/VisibleCoverageNodeMsg[] visible_coverage_nodes
