@@ -1,43 +1,57 @@
 import os
 import pickle
+
 import numpy as np
-from gelslam.utils import Logger
 
 
 class ParentGroupsInfo:
-    def __init__(self, logger=None):
-        self.logger = Logger(logger)
+    """
+    Tracks and manages parent group assignments for keyframes. Same parent group means same trial.
+    Used for detecting and merging groups during loop closure.
+    """
+
+    def __init__(self):
         self.parent_groups = []
         self.parent_group_sizes = []
 
     def save(self, save_dir):
-        # Remove the not-pickable states
-        self.logger = None
         # Pickle the rest
         with open(os.path.join(save_dir, "parent_groups_info.pkl"), "wb") as f:
             pickle.dump(self, f)
 
     @classmethod
-    def load(cls, load_dir, logger=None):
+    def load(cls, load_dir):
         # Load the pickled file
         with open(os.path.join(load_dir, "parent_groups_info.pkl"), "rb") as f:
             instance = pickle.load(f)
-        # Construct the not-pickable states
-        instance.logger = Logger(logger)
         return instance
 
     def get_largest_parent_group(self):
-        """For final mesh construction purpose, get the largest parent group."""
+        """
+        Get the largest parent group.
+
+        :return: int; The largest parent group.
+        """
         return np.argmax(self.parent_group_sizes)
 
     def get_parent_group(self, kidx, keyframedb):
-        """Get the parent group of the keyframe based on its kidx."""
+        """
+        Get the parent group of a keyframe.
+
+        :param kidx: int; The keyframe index.
+        :param keyframedb: KeyFrameDB; The keyframe database.
+        :return: int; The parent group.
+        """
         return self.parent_groups[keyframedb[kidx].trial_group]
 
     def update_wrt_new_keyframes(self, keyframedb, updated_size, targeted_size):
         """
         Update the parent groups and sizes based on the newly introduced keyframes.
         Newly introduced keyframes are kidxs from updated_size to targeted_size.
+
+        :param keyframedb: KeyFrameDB; The keyframe database.
+        :param updated_size: int; The size of the database before update.
+        :param targeted_size: int; The size of the database after update.
         """
         for kidx in range(updated_size, targeted_size):
             keyframe = keyframedb[kidx]
@@ -48,46 +62,22 @@ class ParentGroupsInfo:
                 parent_group = self.parent_groups[keyframe.trial_group]
                 self.parent_group_sizes[parent_group] += 1
 
-    def update_wrt_single_factor(self, keyframedb, ref_kidx, tar_kidx):
-        """
-        Update the parent groups and sizes based on the newly introduced factor.
-        """
-        # Check what parent groups to be merged
-        ref_parent_group = self.get_parent_group(ref_kidx, keyframedb)
-        tar_parent_group = self.get_parent_group(tar_kidx, keyframedb)
-        if ref_parent_group != tar_parent_group:
-            ref_parent_group_size = self.parent_group_sizes[ref_parent_group]
-            tar_parent_group_size = self.parent_group_sizes[tar_parent_group]
-            if ref_parent_group_size > tar_parent_group_size:
-                new_parent_group = ref_parent_group
-                removing_parent_group = tar_parent_group
-            else:
-                new_parent_group = tar_parent_group
-                removing_parent_group = ref_parent_group
-            # Merge the parent groups
-            for idx, parent_group in enumerate(self.parent_groups):
-                if parent_group == ref_parent_group or parent_group == tar_parent_group:
-                    self.parent_groups[idx] = new_parent_group
-            self.parent_group_sizes[new_parent_group] = (
-                ref_parent_group_size + tar_parent_group_size
-            )
-            self.parent_group_sizes[removing_parent_group] = 0
-
     def update_wrt_loop_closure(
         self, keyframedb, tar_kidx, matched_kidxs, updated_size
     ):
         """
-        Update the parent groups and sizes based on the detected loop closures.
-        :params keyframedb: The keyframe database.
-        :params tar_kidx: The target keyframe index.
-        :params matched_kidxs: The matched keyframe indices.
-        :params updated_size: The original number of updated keyframes before loop closure.
-        :return:
-            original_member_kidxs: The keyframes that are members of the original parent group before merging.
-            new_member_kidxs: The newly added keyframes of the parent group, including old keyframes
-                that are merged due to loop closure and new keyframes in the same parent group.
-            other_kidxs: Newly added keyframes that belongs to other parent group.
-            removed_trial_groups: The trial groups that are removed.
+        Updates parent groups and sizes based on detected loop closures.
+        Merges groups if necessary.
+
+        :param keyframedb: KeyFrameDB; The keyframe database.
+        :param tar_kidx: int; The target keyframe index.
+        :param matched_kidxs: list of int; The matched keyframe indices.
+        :param updated_size: int; The original number of keyframes before loop closure.
+        :return: Tuple containing:
+            - original_member_kidxs: Keyframes indices already in the merged group.
+            - new_member_kidxs: Keyframes indices newly added to the merged group.
+            - other_kidxs: Keyframes indices belonging to other groups.
+            - removed_trial_groups: List of trial groups that were removed (merged).
         """
         # Check what parent groups to be merged
         tar_parent_group = self.get_parent_group(tar_kidx, keyframedb)
@@ -99,11 +89,13 @@ class ParentGroupsInfo:
                     merging_parent_groups.append(ref_parent_group)
 
         # Merge the parent group and returns how the indices are merged
-        original_member_kidxs = (
-            []
-        )  # The keyframes that are members of the original parent group
-        new_member_kidxs = []  # The newly added keyframes of the parent group
-        other_kidxs = []  # Newly added keyframes that belongs to other parent group
+        # The keyframes that are members of the original parent group
+        original_member_kidxs = []
+        # The newly added keyframes of the parent group
+        new_member_kidxs = []
+        # Newly added keyframes that belongs to other parent group
+        other_kidxs = []
+        # Parent groups that were removed (merged)
         removed_trial_groups = []
         if len(merging_parent_groups) > 1:
             # Identify new parent group

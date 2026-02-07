@@ -5,21 +5,32 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
 
-from cv_bridge import CvBridge
 import rclpy
+import yaml
+from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-import yaml
 
-from gelslam_msgs.msg import KeyFrameMsg, FrameMsg
 from gelslam.core.tracker import Tracker
+from gelslam.utils import Logger
+from gelslam_msgs.msg import FrameMsg, KeyFrameMsg
+
+"""
+Single thread:
+1. Track thread:
+    - Image callback: Tracks the frame and publishes keyframes/frames.
+"""
 
 
 class TrackerNode(Node):
+    """
+    ROS2 node for real-time tracking.
+    """
+
     def __init__(self):
         super().__init__("tracker_node")
         self.bridge = CvBridge()
-        # Get the configuration path and load the configuration
+        # Load configuration path
         self.declare_parameter("config_path", "")
         config_path = (
             self.get_parameter("config_path").get_parameter_value().string_value
@@ -32,24 +43,33 @@ class TrackerNode(Node):
             calib_model_path = os.path.join(
                 os.path.dirname(config_path), calib_model_path
             )
-        # Get the save data directory
+        # Get the directory to save the tracker states
         self.declare_parameter("data_dir", "")
         data_dir = self.get_parameter("data_dir").get_parameter_value().string_value
         self.save_dir = os.path.join(data_dir, "gelslam_online")
 
-        # The tracker object
-        self.tracker = Tracker(calib_model_path, config, logger=self.get_logger())
+        # The logger
+        self.logger = Logger(ros_logger=self.get_logger())
 
-        # Create the subscriber
+        # Initialize tracker
+        self.tracker = Tracker(calib_model_path, config, logger=self.logger)
+
+        # Initialize subscribers
         self.create_subscription(Image, "image", self.image_callback, 1)
 
-        # Create the publishers
+        # Initialize publishers
         self.keyframe_pub = self.create_publisher(KeyFrameMsg, "keyframe", 10)
         self.frame_pub = self.create_publisher(FrameMsg, "frame", 10)
 
     def image_callback(self, msg):
+        """
+        Callback function for the image subscriber.
+        Tracks the frame and publishes keyframes/frames.
+
+        :param msg: Image; The image message.
+        """
         image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        ret, track_result = self.tracker.track(image, log_prefix="Track")
+        ret, track_result = self.tracker.track(image, log_prefix="Track Thread")
         if ret:
             frame_msg, keyframe_msgs = track_result
             for keyframe_msg in keyframe_msgs:
@@ -59,13 +79,19 @@ class TrackerNode(Node):
             time.sleep(0.001)
 
     def destroy_node(self):
-        # Destroy the node
+        """
+        Clean up node and save tracker state.
+        """
+        # Clean up node
         super().destroy_node()
-        # Save the tracker results
+        # Save tracker state
         self.tracker.save(self.save_dir)
 
 
 def main(args=None):
+    """
+    Main function to initialize and run the node.
+    """
     rclpy.init(args=args)
     node = TrackerNode()
     try:

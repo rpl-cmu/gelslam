@@ -1,20 +1,23 @@
 import argparse
 import os
-import pickle
+
 import open3d as o3d
 import yaml
 
-from gelslam.core.pose_graph import PoseGraphSolutions
-from gelslam.core.parent_groups_info import ParentGroupsInfo
-from gelslam.core.keyframe import KeyFrameDB
 from gelslam.core.coverage_graph import CoverageGraph
-from gelslam.core.keyframe import compute_adjusted_pointcloud
-from gelslam.utils import pointcloud2mesh
+from gelslam.core.keyframe import KeyFrameDB, compute_adjusted_pointcloud
+from gelslam.core.parent_groups_info import ParentGroupsInfo
+from gelslam.core.pose_graph import PoseGraphSolutions
+from gelslam.utils import Logger, pointcloud2mesh
 
 config_path = os.path.join(os.path.dirname(__file__), "../../config/config.yaml")
 
 
 def reconstruct():
+    """
+    Main function for offline reconstruction.
+    Loads saved data and generates a merged mesh.
+    """
     # Argument Parser
     parser = argparse.ArgumentParser(description="Offline reconstruct.")
     parser.add_argument(
@@ -49,7 +52,8 @@ def reconstruct():
     data_dir = args.data_dir
     save_dir = os.path.join(data_dir, args.method)
     load_dir = save_dir
-    keyframedb = KeyFrameDB.load(load_dir)
+    logger = Logger()
+    keyframedb = KeyFrameDB.load(load_dir, logger)
     parent_groups_info = ParentGroupsInfo.load(load_dir)
     pose_graph_solutions = PoseGraphSolutions.load(load_dir)
     updated_size = pose_graph_solutions.size()

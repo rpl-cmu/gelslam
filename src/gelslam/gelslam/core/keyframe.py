@@ -1,28 +1,31 @@
 import os
-import shutil
 import pickle
+import shutil
+
 import cv2
-from cv_bridge import CvBridge
 import numpy as np
+from cv_bridge import CvBridge
 from normalflow.utils import height2pointcloud
+
 from gelslam.utils import (
-    Logger,
-    mask2weight,
-    get_backproj_weights_and_pointcloud,
     get_backproj_weights,
+    get_backproj_weights_and_pointcloud,
     get_sift_features,
+    mask2weight,
 )
 
 
 def keyframe_msg2keyframe(bridge, keyframe_msg, trial_group, new_trial_flag, ppmm):
     """
-    Convert the keyframe message to KeyFrame object.
-    To tackle potential keyframe dropping, new_trial_flag is overwritten.
-    :param bridge: CvBridge; the cv bridge.
-    :param keyframe_msg: KeyFrameMsg; the keyframe message.
-    :param trial_group: int; the trial group of the keyframe.
-    :param new_trial_flag: bool; the flag of new trial.
-    :param ppmm: float; the pixel per mm.
+    Converts a KeyFrameMsg to a KeyFrame object.
+
+    :param bridge: CvBridge; To convert images.
+    :param bridge: CvBridge; The cv bridge.
+    :param keyframe_msg: KeyFrameMsg; The keyframe message.
+    :param trial_group: int; The trial group of the keyframe.
+    :param new_trial_flag: bool; The flag of new trial.
+    :param ppmm: float; Pixels size in milimeters.
+    :return: KeyFrame; The keyframe object.
     """
     # Convert the message images to numpy arrays
     H = bridge.imgmsg_to_cv2(keyframe_msg.height_map)
@@ -53,6 +56,12 @@ def compute_overlap_weight(tar_kidx, ref_kidx, keyframedb, pose_graph_solutions)
     """
     Compute the overlapping weight between two keyframes by projected reference pointcloud to the
     target keyframe.
+
+    :param tar_kidx: int; The target keyframe index.
+    :param ref_kidx: int; The reference keyframe index.
+    :param keyframedb: KeyFrameDB; The keyframe database.
+    :param pose_graph_solutions: PoseGraphSolutions; Solved poses.
+    :return: float; The overlap weight.
     """
     start_T_tar = pose_graph_solutions[tar_kidx]
     tar_keyframe = keyframedb[tar_kidx]
@@ -62,18 +71,8 @@ def compute_overlap_weight(tar_kidx, ref_kidx, keyframedb, pose_graph_solutions)
     cos_angle = start_T_ref[:3, 2] @ start_T_tar[:3, 2]
     if cos_angle < 0:
         return 0.0
-    # Quick check overlap
-    tar_T_ref = np.linalg.inv(start_T_tar) @ start_T_ref
-    # is_overlapped = quick_check_overlap(
-    #     tar_keyframe.H,
-    #     tar_keyframe.C,
-    #     ref_keyframe.pointcloud,
-    #     tar_T_ref,
-    #     tar_keyframe.ppmm,
-    # )
-    # if not is_overlapped:
-    #     return 0.0
     # Estimate the overlap weight
+    tar_T_ref = np.linalg.inv(start_T_tar) @ start_T_ref
     W_backproj = get_backproj_weights(
         tar_keyframe.W, ref_keyframe.pointcloud, tar_T_ref, tar_keyframe.ppmm
     )
@@ -82,7 +81,13 @@ def compute_overlap_weight(tar_kidx, ref_kidx, keyframedb, pose_graph_solutions)
 
 def compute_revealed_weight(tar_kidx, neighbor_kidxs, keyframedb, pose_graph_solutions):
     """
-    Compute the revealed weight that is not revealed by its neighbors.
+    Computes the weight of the target keyframe that is NOT covered by its neighbors (revealed weight).
+
+    :param tar_kidx: int; The target keyframe index.
+    :param neighbor_kidxs: list of int; The indices of neighbor keyframes.
+    :param keyframedb: KeyFrameDB; The keyframe database.
+    :param pose_graph_solutions: PoseGraphSolutions; Solved poses.
+    :return: float; The revealed weight.
     """
     tar_keyframe = keyframedb[tar_kidx]
     start_T_tar = pose_graph_solutions[tar_kidx]
@@ -113,7 +118,15 @@ def compute_adjusted_pointcloud(
     tar_kidx, neighbor_kidxs, keyframedb, pose_graph_solutions, viz_level=0
 ):
     """
-    Update the mesh of the current keyframe, supporting downsampling.
+    Computes the weighted average pointcloud for the target keyframe, incorporating data from neighbors.
+    Supports downsampling via viz_level.
+
+    :param tar_kidx: int; The target keyframe index.
+    :param neighbor_kidxs: list of int; The indices of neighbor keyframes.
+    :param keyframedb: KeyFrameDB; The keyframe database.
+    :param pose_graph_solutions: PoseGraphSolutions; Solved poses.
+    :param viz_level: int; The visualization level (0 for full resolution).
+    :return: np.ndarray (N, 3); The adjusted pointcloud.
     """
     tar_keyframe = keyframedb[tar_kidx]
     start_T_tar = pose_graph_solutions[tar_kidx]
@@ -146,7 +159,8 @@ def compute_adjusted_pointcloud(
 
 class KeyFrame:
     """
-    The keyframe class, also includes the visualization information.
+    Represents a keyframe containing geometry (H, C, N, L) and features.
+    Includes logic for downsampling and visualization.
     """
 
     def __init__(
@@ -264,11 +278,14 @@ class KeyFrame:
 
 class KeyFrameDB:
     """
-    The keyframe database
+    Manages a database of KeyFrames.
+    Supports saving/loading and retrieving keyframes.
+    Note: kidx is not the same as kid. kid is the unique identifier of a keyframe,
+    while kidx is the index of a keyframe in the database. They can be different in multi-threaded scenarios.
     """
 
-    def __init__(self, ppmm=0.0634, logger=None):
-        self.logger = Logger(logger)
+    def __init__(self, ppmm, logger):
+        self.logger = logger
         self.bridge = CvBridge()
         self.ppmm = ppmm
         # The keyframe database variables
@@ -296,12 +313,12 @@ class KeyFrameDB:
             pickle.dump(self, f)
 
     @classmethod
-    def load(cls, load_dir, logger=None):
+    def load(cls, load_dir, logger):
         # Load the pickled file
         with open(os.path.join(load_dir, "keyframedb.pkl"), "rb") as f:
             instance = pickle.load(f)
         # Construct the not-pickable states
-        instance.logger = Logger(logger)
+        instance.logger = logger
         instance.bridge = CvBridge()
         # Load keyframes
         instance.keyframes = []
@@ -329,6 +346,10 @@ class KeyFrameDB:
         """
         Find the kidx of the keyframe with the given ID but within the targeted size.
         If not found, return None.
+
+        :param tar_kid: int; The target keyframe ID.
+        :param targeted_size: int; The size of the database to search within.
+        :return: int or None; The keyframe index.
         """
         tar_kidx = None
         if targeted_size != 0:
@@ -340,10 +361,12 @@ class KeyFrameDB:
                     break
         return tar_kidx
 
-    def insert(self, keyframe_msg, log_prefix="KeyFrame Adding"):
+    def insert(self, keyframe_msg, log_prefix="Keyframe Insert Thread"):
         """
         Turn the keyframe message to keyframe and insert to the database.
-        :param keyframe_msg: KeyFrameMsg; the keyframe message.
+
+        :param keyframe_msg: KeyFrameMsg; The keyframe message.
+        :param log_prefix: str; The prefix for logging.
         """
         # Detect keyframe drop
         new_trial_flag = keyframe_msg.new_trial_flag
@@ -366,7 +389,7 @@ class KeyFrameDB:
             ppmm=self.ppmm,
         )
         self.logger.info(
-            "%s -- Inserted: ID = %d, Trial Group = %d"
+            "%s -- keyframe ID = %d, trial group = %d"
             % (log_prefix, keyframe_msg.kid, self.curr_trial_group)
         )
         # Append the keyframe to the database

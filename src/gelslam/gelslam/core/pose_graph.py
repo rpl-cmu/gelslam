@@ -1,28 +1,28 @@
-import pickle
 import os
+import pickle
+
 import cv2
 import gtsam
 import numpy as np
-from normalflow.registration import normalflow, LoseTrackError
-from gelslam.utils import (
-    matrix_in_mm,
-    matrix_in_m,
-    M2T,
-    Logger,
-)
+from normalflow.registration import LoseTrackError, normalflow
+
+from gelslam.utils import M2T, matrix_in_m, matrix_in_mm
 
 noise = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.01, 0.01, 0.01, 0.1, 0.1, 0.1]))
 
 
 class PoseGraph:
     """
-    The pose graph of the reconstruction.
-    It handles the optimization of the poses.
+    Handles the pose graph.
     """
 
-    def __init__(self, config, logger=None):
+    def __init__(self, config):
+        """
+        Initialize the PoseGraph.
+
+        :param config: dict; The configuration.
+        """
         self.pose_graph_config = config["gelslam_config"]["pose_graph_config"]
-        self.logger = Logger(logger)
         self.graph = gtsam.NonlinearFactorGraph()
         self.graph_init = gtsam.Values()
         self.graph_result = None
@@ -31,7 +31,11 @@ class PoseGraph:
 
     def add_odometry_factors(self, keyframedb, updated_size, targeted_size):
         """
-        Add odometry factors and reset the initialization to the pose graph.
+        Adds odometry factors and initializes new trial priors to the graph.
+
+        :param keyframedb: KeyFrameDB; The keyframe database.
+        :param updated_size: int; The size of the database before update.
+        :param targeted_size: int; The size of the database after update.
         """
         if self.graph_result is not None:
             self.graph_init = gtsam.Values(self.graph_result)
@@ -59,8 +63,13 @@ class PoseGraph:
 
     def detect_and_add_loops(self, keyframedb, tar_kidx, coverage_graph):
         """
-        Detect loops between the target kidx to its previous keyframes.
-        Add factors accordingly when loops are detected.
+        Detects loops between the target keyframe and the keyframes in the coverage graph.
+        Adds loop closure factors to the graph if loops are detected.
+
+        :param keyframedb: KeyFrameDB; The keyframe database.
+        :param tar_kidx: int; The target keyframe index.
+        :param coverage_graph: CoverageGraph; The coverage graph.
+        :return: list of int; The matched keyframe indices.
         """
         # Get the keyframe to detect loop on
         tar_keyframe = keyframedb[tar_kidx]
@@ -75,7 +84,7 @@ class PoseGraph:
             # Skip if either frames have not enough features
             if len(ref_keyframe.kp) == 0 or len(tar_keyframe.kp) == 0:
                 continue
-            # Skip if not active in coverage graph
+            # Skip if not part of the coverage graph
             if ref_kidx < coverage_graph.size():
                 if not coverage_graph[ref_kidx].is_active:
                     continue
@@ -132,13 +141,20 @@ class PoseGraph:
         return matched_kidxs
 
     def remove_prior_factors(self, removed_trial_groups):
+        """
+        Removes the prior factors of the merged trial groups.
+
+        :param removed_trial_groups: list of int; The trial groups to remove.
+        """
         for trial_group in removed_trial_groups:
             self.graph.remove(self.prior_factor_idxs[trial_group])
             self.prior_factor_idxs[trial_group] = -1
 
     def solve(self):
         """
-        Solve the pose graph optimization.
+        Executes the pose graph optimization using Levenberg-Marquardt optimizer.
+
+        :return: PoseGraphSolutions; The solved poses.
         """
         # Solve the pose graph
         optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.graph_init)
@@ -154,6 +170,11 @@ class PoseGraph:
         return pose_graph_solutions
 
     def save(self, save_dir):
+        """
+        Save the pose graph to a directory.
+
+        :param save_dir: str; The directory to save to.
+        """
         # Turn prior_factor_idxs into prior_keys for saving due to g2o will rearrange factors
         self.prior_keys = []
         for prior_factor_idx in self.prior_factor_idxs:
@@ -169,7 +190,6 @@ class PoseGraph:
             self.graph, self.graph_result, os.path.join(save_dir, "pose_graph.g2o")
         )
         # Remove the not-picklable states
-        self.logger = None
         self.graph = None
         self.graph_init = None
         self.graph_result = None
@@ -178,12 +198,16 @@ class PoseGraph:
             pickle.dump(self, f)
 
     @classmethod
-    def load(cls, load_dir, logger=None):
+    def load(cls, load_dir):
+        """
+        Load the pose graph from a directory.
+
+        :param load_dir: str; The directory to load from.
+        :return: PoseGraph; The loaded pose graph.
+        """
         # Load the pickled file
         with open(os.path.join(load_dir, "pose_graph.pkl"), "rb") as f:
             instance = pickle.load(f)
-        # Construct the not-pickable states
-        instance.logger = Logger(logger)
         # Load the graph itinstance
         instance.graph, instance.graph_result = gtsam.readG2o(
             os.path.join(load_dir, "pose_graph.g2o"), is3D=True
@@ -209,20 +233,47 @@ class PoseGraphSolutions:
     """
 
     def __init__(self, solved_start_T_currs=[]):
+        """
+        Initialize the PoseGraphSolutions.
+
+        :param solved_start_T_currs: list of np.ndarray; The solved poses.
+        """
         self.solved_start_T_currs = solved_start_T_currs
 
     def __getitem__(self, idx):
+        """
+        Get the solved pose by index.
+
+        :param idx: int; The index.
+        :return: np.ndarray; The solved pose of a keyframe.
+        """
         return self.solved_start_T_currs[idx]
 
     def save(self, save_dir):
+        """
+        Save the solutions to a directory.
+
+        :param save_dir: str; The directory to save to.
+        """
         with open(os.path.join(save_dir, "pose_graph_solutions.pkl"), "wb") as f:
             pickle.dump(self, f)
 
     @classmethod
     def load(cls, load_dir):
+        """
+        Load the solutions from a directory.
+
+        :param load_dir: str; The directory to load from.
+        :return: PoseGraphSolutions; The loaded solutions.
+        """
         with open(os.path.join(load_dir, "pose_graph_solutions.pkl"), "rb") as f:
             instance = pickle.load(f)
         return instance
 
     def size(self):
+        """
+        Get the size of the solutions (number of keyframes).
+
+        :return: int; The size of the solutions.
+        """
         return len(self.solved_start_T_currs)

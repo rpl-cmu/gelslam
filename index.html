@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="Discover GelSLAM: a state-of-the-art system for real-time, high-fidelity, and robust 3D tactile SLAM using GelSight. Ideal for robotics, 3D reconstruction, manipulation, and in-hand manipulation.">
+  <meta name="keywords" content="3D reconstruction, tactile sensing, SLAM, Simultaneous Localization and Mapping, vision-based tactile sensors, object pose estimation, GelSight, GelSLAM, robotics, in-hand manipulation, contact-based tracking, dexterous manipulation">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GelSLAM: A Real-time, High-Fidelity, and Robust 3D Tactile SLAM System</title>
+
+  <!-- Global site tag (gtag.js) - Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-PYVRSFMDRL"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+
+    function gtag() {
+      dataLayer.push(arguments);
+    }
+
+    gtag('js', new Date());
+
+    gtag('config', 'G-PYVRSFMDRL');
+  </script>
+
+  <script>
+  /**
+   * Function to change the video source
+   * @param {string} newSrc - The new video source URL.
+   */
+  function changeVideo(newSrc) {
+    const video = document.getElementById('change');
+    const source = document.getElementById('changeSource');
+    source.src = newSrc;
+    video.load(); // Reload the video element with the new source
+  }
+</script>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="icon" href="./assets/favicon.gif">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/bulma-carousel.min.js"></script>
+  <script src="./static/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-3 publication-title">GelSLAM: A Real-Time, High-Fidelity, and Robust 3D Tactile SLAM System</h1>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <a href="https://joehjhuang.github.io/">Hung-Jui Huang</a><sup>1</sup>&nbsp;•&nbsp
+            </span>
+            <span class="author-block">
+              <a href="https://www.aminmirzaee.com/">Mohammad Amin Mirzaee</a><sup>2</sup>&nbsp;•&nbsp
+            </span>
+            <span class="author-block">
+              <a href="https://www.cs.cmu.edu/~kaess/">Michael Kaess</a><sup>1</sup>&nbsp;•&nbsp
+            </span>
+            <span class="author-block">
+              <a href="https://siebelschool.illinois.edu/about/people/all-faculty/yuanwz">Wenzhen Yuan</a><sup>2</sup>
+            </span>
+          </div>
+
+          <div class="is-size-9 publication-authors">
+            <span class="author-block"><sup>1</sup>Carnegie Mellon University &nbsp;&nbsp</span>
+            <span class="author-block"><sup>2</sup>University of Illinois Urbana-Champaign</span>
+          </div>
+
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <span class="link-block">
+                <a href="http://arxiv.org/abs/2508.15990"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="ai ai-arxiv"></i>
+                  </span>
+                  <span>arXiv</span>
+                </a>
+              </span>&nbsp;&nbsp;&nbsp;
+            </div>
+          </div>
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <!-- PDF Link. -->
+              <span style="color: red;">[An Updated Website (with More Videos), Code, and Dataset Are Coming Soon.]</span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="hero teaser">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-four-fifths">
+        <video id="real-time-demo" autoplay muted loop playsinline>
+          <source src="./videos/teaser.mp4" type="video/mp4">
+        </video>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- TLDR. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <div class="content has-text-justified">
+          <p>
+            <font size="4"><b>TL;DR</b>: 
+              Extremely high-fidelity, real-time 3D reconstruction using 
+              only tactile input. Also supports accurate long-horizon tactile-based object
+              pose tracking for manipulation and dexterous manipulation tasks.
+            </font>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <img src="assets/teaser.jpg" alt="teaser_img" style="width: 80%; height: auto;"/>
+        <div class="content has-text-justified" style="margin-top: 20px">
+          <p>
+            <font size="4">
+              Accurately perceiving an object's pose and shape is essential for precise grasping and manipulation. Compared to common vision-based methods, tactile sensing offers advantages in precision and immunity to occlusion when tracking and reconstructing objects in contact. This makes it particularly valuable for in-hand and other high-precision manipulation tasks.
+            </font>
+          </p>
+          <p>
+            <font size="4">
+              In this work, we present <em><b>GelSLAM</b></em>, a real-time 3D SLAM system that relies solely on tactile sensing to estimate object pose over long periods and reconstruct object shapes with high fidelity. Unlike traditional point cloud–based approaches, GelSLAM uses tactile-derived surface normals and curvatures for robust tracking and loop closure. It can track object motion in real time with low error and minimal drift, and reconstruct shapes with submillimeter accuracy, even for low-texture objects such as wooden tools.
+            </font>
+          </p>
+          <p>
+            <font size="4">
+              GelSLAM extends tactile sensing beyond local contact to enable global, long-horizon spatial perception, and we believe it will serve as a foundation for many precise manipulation tasks involving interaction with objects in hand.
+            </font>
+          </p>
+        </div>
+      </div>
+    </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Object Reconstruction Demo</h2>
+        <video id="real-time-demo" autoplay muted loop playsinline controls>
+          <source src="./videos/reconstruction_demo.mp4" type="video/mp4">
+        </video>
+        <div class="content has-text-justified" style="margin-top: 20px">
+          <p>
+            <font size="4">
+              Reconstructing a peanut and a rock with the GelSight Mini sensor, and a tree trunk with the GelBelt sensor.
+            </font>
+          </p>
+        </div>
+      </div>
+    </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">More Objects Reconstructed</h2>
+        <img src="assets/reconstruction_result.jpg" alt="teaser_img" style="width: 100%; height: auto;"/>
+        <div class="content has-text-justified" style="margin-top: 20px">
+          <p>
+            <font size="4">
+              GelSLAM reconstruction results for the 15 objects, ordered roughly from largest to smallest.
+              <span style="color:red;">(Video coming soon)</span>
+            </font>
+          </p>
+        </div>
+      </div>
+    </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Reconstructed vs. Ground Truth</h2>
+        <img src="assets/reconstruction_quantitative_result.jpg" alt="teaser_img" style="width: 100%; height: auto;"/>
+        <div class="content has-text-justified" style="margin-top: 20px">
+          <p>
+            <font size="4">
+              Comparison between GelSLAM-reconstructed shapes and ground truth CAD models of 3D-printed objects.
+              <span style="color:red;">(Video coming soon)</span>
+            </font>
+          </p>
+        </div>
+      </div>
+    </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <p>
+            This website uses the <a href="https://nerfies.github.io/">Nerfies template</a>.
+            The visual designs are inspired from the <a href="https://suddhu.github.io/neural-feels/">NeuralFeels website</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
