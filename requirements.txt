@@ -1,0 +1,9 @@
+numpy>=1.26.4
+opencv-python>=4.11.0.86
+scipy==1.15.2
+open3d==0.18.0
+pyyaml==6.0.2
+torch>=2.5.0
+# Source installations
+normalflow @ git+https://github.com/rpl-cmu/normalflow.git
+gs_sdk @ git+https://github.com/joehjhuang/gs_sdk.git

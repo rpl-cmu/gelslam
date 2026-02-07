@@ -22,7 +22,7 @@ setup(
     maintainer="rpl",
     maintainer_email="hungjuih@andrew.cmu.edu",
     description="Gelslam Algorithm",
-    license="MIT Liscence",
+    license="MIT License",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [

@@ -1,16 +1,21 @@
 import os
-import yaml
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
+import threading
+
 import cv2
+import rclpy
+import yaml
+from cv_bridge import CvBridge
 from gs_sdk.gs_device import FastCamera
 from rclpy.executors import MultiThreadedExecutor
-import threading
+from rclpy.node import Node
+from sensor_msgs.msg import Image
 
 
 class GelSightStreamerNode(Node):
+    """
+    ROS2 node for streaming images from a GelSight sensor.
+    """
+
     def __init__(self):
         super().__init__("gelsight_streamer_node")
         self.bridge = CvBridge()
@@ -19,6 +24,7 @@ class GelSightStreamerNode(Node):
         config_path = (
             self.get_parameter("config_path").get_parameter_value().string_value
         )
+        config_path = os.path.abspath(os.path.expanduser(config_path))
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
             device_config = config["device_config"]
@@ -28,16 +34,17 @@ class GelSightStreamerNode(Node):
             raw_imgh = device_config["raw_imgh"]
             raw_imgw = device_config["raw_imgw"]
             framerate = device_config["framerate"]
-        # Get the save data directory
+        # Get the data directory to save the video file
         self.declare_parameter("data_dir", "")
         self.data_dir = (
             self.get_parameter("data_dir").get_parameter_value().string_value
         )
+        self.data_dir = os.path.abspath(os.path.expanduser(self.data_dir))
         # Create the directory for other nodes to save information
         self.save_dir = os.path.join(self.data_dir, "gelslam_online")
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
-        # Create device and stream the device
+        # Initialize and connect to the device
         self.device = FastCamera(
             device_name, imgh, imgw, raw_imgh, raw_imgw, framerate, verbose=False
         )
@@ -54,10 +61,13 @@ class GelSightStreamerNode(Node):
         # Start the image streaming thread
         self.stream_thread = threading.Thread(target=self.stream_images)
         self.stream_thread.start()
-        # Create the image publisher
+        # Initialize publishers
         self.image_pub = self.create_publisher(Image, "image", 10)
 
     def stream_images(self):
+        """
+        Continuously captures, saves, and publishes images.
+        """
         while self.running:
             image = self.device.get_image()
             self.video_writer.write(image)
@@ -66,7 +76,7 @@ class GelSightStreamerNode(Node):
                 self.image_pub.publish(image_msg)
 
     def destroy_node(self):
-        # Destroy node
+        # Cleanup
         self.running = False
         super().destroy_node()
         # Stop the streaming thread
@@ -77,6 +87,9 @@ class GelSightStreamerNode(Node):
 
 
 def main(args=None):
+    """
+    Main function to initialize and run the node.
+    """
     rclpy.init(args=args)
     node = GelSightStreamerNode()
     executor = MultiThreadedExecutor()

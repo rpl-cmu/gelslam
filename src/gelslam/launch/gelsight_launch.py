@@ -1,16 +1,16 @@
 import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch.actions import SetEnvironmentVariable
-from launch.conditions import IfCondition
-from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
     data_dir_arg = DeclareLaunchArgument(
-        "data_dir", default_value="", description="Directory to the saved data"
+        "data_dir", default_value="", description="Directory to save the data"
     )
     config_path_arg = DeclareLaunchArgument(
         "config_path",
@@ -24,8 +24,6 @@ def generate_launch_description():
         default_value="true",
         description="Online render the reconstruction process or not",
     )
-
-    unbuffered_env = SetEnvironmentVariable("PYTHONUNBUFFERED", "1")
 
     tracker_node = Node(
         package="gelslam",

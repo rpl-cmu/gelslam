@@ -2,10 +2,21 @@ import numpy as np
 from normalflow.utils import height2pointcloud
 
 from gelslam.utils import pointcloud2mesh
-from gelslam_msgs.msg import KeyFrameMsg, FrameMsg
+from gelslam_msgs.msg import FrameMsg, KeyFrameMsg
 
 
 def create_keyframe_msg(bridge, frame, kid, fid, is_new_trial, ref_T_curr):
+    """
+    Creates a KeyFrameMsg from a Frame object.
+
+    :param bridge: CvBridge; To convert images.
+    :param frame: Frame; Object containing data.
+    :param kid: int; Keyframe ID.
+    :param fid: int; Frame ID.
+    :param is_new_trial: bool; Flag if this is a new trial.
+    :param ref_T_curr: np.ndarray; Transformation from current to reference.
+    :return: KeyFrameMsg; The keyframe message.
+    """
     keyframe_msg = KeyFrameMsg()
     keyframe_msg.height_map = bridge.cv2_to_imgmsg(frame.H, encoding="32FC1")
     keyframe_msg.contact_mask = bridge.cv2_to_imgmsg(
@@ -21,6 +32,16 @@ def create_keyframe_msg(bridge, frame, kid, fid, is_new_trial, ref_T_curr):
 
 
 def create_frame_msg(bridge, frame, fid, ref_kid, ref_T_curr):
+    """
+    Creates a FrameMsg from a Frame object.
+
+    :param bridge: CvBridge; To convert images.
+    :param frame: Frame; Object containing data.
+    :param fid: int; Frame ID.
+    :param ref_kid: int; Reference Keyframe ID.
+    :param ref_T_curr: np.ndarray; Transformation from current to reference.
+    :return: FrameMsg; The frame message.
+    """
     frame_msg = FrameMsg()
     frame_msg.height_map = bridge.cv2_to_imgmsg(frame.H, encoding="32FC1")
     frame_msg.contact_mask = bridge.cv2_to_imgmsg(
@@ -35,14 +56,24 @@ def create_frame_msg(bridge, frame, fid, ref_kid, ref_T_curr):
 
 
 def pose_of_frame_msg(frame_msg):
-    # TODO: Change the name of this function, also maybe make it wrt start.
-    """Get the pose of the frame message with regards to its reference keyframe."""
+    """
+    Extracts the pose of the frame message relative to its reference keyframe.
+
+    :param frame_msg: FrameMsg; The frame message.
+    :return: np.ndarray (4, 4); The pose matrix.
+    """
     return np.array(frame_msg.ref_t_curr).reshape(4, 4).astype(np.float32)
 
 
 def center_of_frame_msg(bridge, frame_msg, ppmm):
-    # TODO: Inspect the name of the function.
-    """Get the center of the frame message with regards to the starting frame."""
+    """
+    Compute the center of the frame.
+
+    :param bridge: CvBridge; To convert images.
+    :param frame_msg: FrameMsg; The frame message.
+    :param ppmm: float; Pixels size in milimeters.
+    :return: np.ndarray (3,); The center point in meters.
+    """
     C = bridge.imgmsg_to_cv2(frame_msg.contact_mask) > 0
     H = bridge.imgmsg_to_cv2(frame_msg.height_map)
     xys = np.column_stack(np.where(C))
@@ -55,7 +86,14 @@ def center_of_frame_msg(bridge, frame_msg, ppmm):
 def frame_msg2mesh(bridge, frame_msg, start_T_ref, ppmm, raise_dist=0.0002):
     """
     Convert the frame message to a mesh.
-    It requires to place the frame mesh to the correct transformation.
+    Transform the mesh to the correct position based on the transformation.
+
+    :param bridge: CvBridge; To convert images.
+    :param frame_msg: FrameMsg; The frame message.
+    :param start_T_ref: np.ndarray; Transformation.
+    :param ppmm: float; Pixels size in milimeters.
+    :param raise_dist: float; Distance to raise the mesh.
+    :return: open3d.geometry.TriangleMesh; The mesh.
     """
     start_T_frame = start_T_ref @ pose_of_frame_msg(frame_msg)
     C = bridge.imgmsg_to_cv2(frame_msg.contact_mask) > 0

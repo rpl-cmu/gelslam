@@ -1,12 +1,19 @@
 import numpy as np
-from gelslam.core.pose_graph import PoseGraphSolutions
+
 from gelslam.core.keyframe import compute_adjusted_pointcloud
+from gelslam.core.pose_graph import PoseGraphSolutions
 from gelslam.utils import pointcloud2mesh
 
 
 def compute_visible_coverage_meshes(visible_coverage_graph_msg, keyframedb, kid2kidx):
     """
     Compute the visible coverage meshes.
+    Determines visualization level based on point count.
+
+    :param visible_coverage_graph_msg: VisibleCoverageGraphMsg; The visible coverage graph message.
+    :param keyframedb: KeyFrameDB; The keyframe database.
+    :param kid2kidx: dict; The mapping from kid to kidx.
+    :return: VisibleCoverageMeshes; The visible coverage meshes.
     """
     kidxs = []
     for visible_coverage_node_msg in visible_coverage_graph_msg.visible_coverage_nodes:
@@ -26,7 +33,7 @@ def compute_visible_coverage_meshes(visible_coverage_graph_msg, keyframedb, kid2
         viz_level = 1
     else:
         viz_level = 0
-    # construct pose graph solutions until lc_kidx, only visible coverage keyframes have values
+    # construct pose graph solutions until the last loop closed keyframe, only visible coverage keyframes have values
     if len(kidxs) == 0:
         start_T_currs = np.zeros((0, 4, 4), dtype=np.float32)
     else:
@@ -75,8 +82,7 @@ def compute_visible_coverage_meshes(visible_coverage_graph_msg, keyframedb, kid2
 
 class VisibleCoverageMeshes:
     """
-    The VisibleCoverageGraphMsg is transformed into VisibleCoverageMeshes.
-    It contains all coverage meshes in the same parent group as the loop closing keyframe.
+    It contains all coverage meshes in the same parent group as the last loop closing keyframe.
     It also saves the kidx and the pose of the loop closing keyframe.
     """
 
@@ -88,7 +94,7 @@ class VisibleCoverageMeshes:
         viz_level=0,
     ):
         self.visible_coverage_meshes = visible_coverage_meshes
-        # The loop closing keyframe's kidx
+        # The last loop closing keyframe's kidx
         self.lc_kidx = lc_kidx
         self.start_T_lc = start_T_lc
         self.viz_level = viz_level
@@ -96,11 +102,12 @@ class VisibleCoverageMeshes:
     def get_keyframe_pose(self, tar_kidx, keyframedb):
         """
         Get the pose of the keyframe.
-        :param tar_kidx: int; the keyframe index.
-        :param keyframedb: KeyFrameDB; the keyframe database.
-        :return:
-            - bool; if the keyframe is not in the same parent group with the visible coverage meshes.
-            - np.ndarray; the pose of the keyframe reference to the visible coverage meshes.
+
+        :param tar_kidx: int; The keyframe index.
+        :param keyframedb: KeyFrameDB; The keyframe database.
+        :return: (bool, np.ndarray);
+            - bool: If the keyframe is not in the same parent group as the visible coverage meshes.
+            - np.ndarray: The pose of the keyframe reference to the visible coverage meshes.
         """
         if len(self.visible_coverage_meshes) == 0:
             return True, np.eye(4, dtype=np.float32)

@@ -1,42 +1,39 @@
 import os
 import pickle
-import json
-import shutil
-import cv2
-from cv_bridge import CvBridge
-import numpy as np
-from normalflow.registration import normalflow, LoseTrackError
-from normalflow.utils import Frame
-from gs_sdk.gs_reconstruct import Reconstructor
-from gelslam.utils import Logger
-from gelslam.core.frame import create_keyframe_msg, create_frame_msg
-from gelslam.visualization.viz_utils import (
-    plot_laplacian_comparison,
-    label_text_and_pad,
-)
 
-# TODO: In tracker, in pose estimation mode, we remove threshold if tracking wrt the previous frame.
-# TODO: If lose track (previous frame is in track), set the previous pose as prior
-# TODO: There is a bug in the tracking, check out pose_estimation/utils
+import numpy as np
+from cv_bridge import CvBridge
+from gs_sdk.gs_reconstruct import Reconstructor
+from normalflow.registration import LoseTrackError, normalflow
+from normalflow.utils import Frame
+
+from gelslam.core.frame import create_frame_msg, create_keyframe_msg
 
 
 class Tracker:
     """
-    The tracker class handles the tracking of the frames.
+    Handles frame tracking.
     """
 
-    def __init__(self, calib_model_path, config, logger=None):
-        self.logger = Logger(logger)
+    def __init__(self, calib_model_path, config, logger):
+        """
+        Initialize the Tracker.
+
+        :param calib_model_path: str; The path to the calibration model.
+        :param config: dict; The configuration.
+        :param logger: Logger; The logger object.
+        """
+        self.logger = logger
         self.ppmm = config["device_config"]["ppmm"]
         self.contact_mask_config = config["contact_mask_config"]
         self.track_config = config["gelslam_config"]["track_config"]
         self.bridge = CvBridge()
-        # Construct the reconstructor
+        # Initialize reconstructor
         self.recon = Reconstructor(calib_model_path)
 
-        # Save the first few images as background images
+        # Store initial images as background
         self.bg_images = []
-        # Tracking states
+        # Tracking state variables
         self.prev_in_contact_flag = False
         self.prev_is_keyframe_flag = False
         self.ref_T_prev = np.eye(4, dtype=np.float32)
@@ -46,21 +43,34 @@ class Tracker:
         self.curr_fid = -1
 
     def save(self, save_dir):
-        # Remove the not-pickable states
+        """
+        Save the tracker state to a directory.
+
+        :param save_dir: str; The directory to save to.
+        """
+        # Exclude non-picklable objects
         self.logger = None
         self.bridge = None
         self.recon = None
-        # Pickle the rest
+        # Pickle remaining state
         with open(os.path.join(save_dir, "tracker.pkl"), "wb") as f:
             pickle.dump(self, f)
 
     @classmethod
-    def load(cls, load_dir, calib_model_path, logger=None):
-        # Load the pickled file
+    def load(cls, load_dir, calib_model_path, logger):
+        """
+        Load the tracker state from a directory.
+
+        :param load_dir: str; The directory to load from.
+        :param calib_model_path: str; The path to the calibration model.
+        :param logger: Logger; The logger object.
+        :return: Tracker; The loaded tracker.
+        """
+        # Load pickled state
         with open(os.path.join(load_dir, "tracker.pkl"), "rb") as f:
             instance = pickle.load(f)
-        # Construct the not-pickable states
-        instance.logger = Logger(logger)
+        # Reconstruct non-picklable objects
+        instance.logger = logger
         instance.bridge = CvBridge()
         instance.recon = Reconstructor(calib_model_path)
         instance.recon.load_bg(instance.bg_image)
@@ -68,17 +78,18 @@ class Tracker:
 
     def track(self, image, log_prefix="Track"):
         """
-        Track the tactile image. It returns a flag and the actual return values.
-        If still collecting background images or not in contact,
-        the flag is False and return value is None.
-        :return:
-            ret: bool; the validity of the return result.
-            (frame_msg, keyframe_msgs):
-                frame_msg: FrameMsg; the current frame information.
-                keyframe_msgs: list of KeyFrameMsg; the list of new keyframes.
+        Tracks the tactile image.
+
+        :param image: np.ndarray; The tactile image.
+        :param log_prefix: str; The prefix for logging.
+        :return: (bool, tuple or None);
+            - bool: Validity of the result. Returns False if collecting background or not in contact.
+            - tuple or None: (frame_msg, keyframe_msgs) if valid, else None.
+                - frame_msg (FrameMsg): Current frame information.
+                - keyframe_msgs (list[KeyFrameMsg]): List of new keyframes.
         """
         if len(self.bg_images) < 10:
-            # Collect the background images
+            # Collect background images
             self.bg_images.append(image)
             if len(self.bg_images) == 10:
                 self.logger.info("%s -- Background images collected" % log_prefix)
@@ -86,7 +97,7 @@ class Tracker:
                 self.recon.load_bg(self.bg_image)
             return False, None
         else:
-            # Obtain the frame to be tracked
+            # Get surface information
             G, H, C = self.recon.get_surface_info(
                 image,
                 self.ppmm,
@@ -101,7 +112,7 @@ class Tracker:
             )
             # Skip if not in contact
             if not frame.is_contacted:
-                self.logger.info("%s -- Skip Frame: not in contact" % log_prefix)
+                self.logger.info("%s -- Skip Frame: Not in contact" % log_prefix)
                 self.prev_in_contact_flag = False
                 return False, None
             else:
@@ -109,9 +120,10 @@ class Tracker:
                 keyframe_msgs = []
                 if not self.prev_in_contact_flag:
                     self.logger.info(
-                        "%s -- New Trial: No previous contact" % log_prefix
+                        "%s -- New Trial: New contact initiated, keyframe ID: %d"
+                        % (log_prefix, self.curr_kid + 1)
                     )
-                    # If the object is newly contacted, create new trial
+                    # New contact detected, start a new trial
                     self.curr_kid += 1
                     keyframe_msg = create_keyframe_msg(
                         self.bridge,
@@ -122,7 +134,7 @@ class Tracker:
                         ref_T_curr=np.eye(4, dtype=np.float32),
                     )
                     keyframe_msgs.append(keyframe_msg)
-                    # Set the tracker information
+                    # Update tracker state
                     self.prev_in_contact_flag = True
                     self.prev_is_keyframe_flag = True
                     self.ref_T_prev = np.eye(4, dtype=np.float32)
@@ -144,19 +156,23 @@ class Tracker:
                             scr_threshold=self.track_config["scr_threshold"],
                             ccs_threshold=self.track_config["ccs_threshold"],
                         )
-                        # The current frame is not a keyframe
+                        # Current frame is tracked successfully (not a keyframe)
                         self.prev_in_contact_flag = True
                         self.prev_is_keyframe_flag = False
                         self.ref_T_prev = np.linalg.inv(curr_T_ref)
                         self.prev_frame = frame
-                        self.logger.info("%s -- Regular Frame" % log_prefix)
+                        self.logger.info(
+                            "%s -- Regular Frame: frame ID: %d"
+                            % (log_prefix, self.curr_fid)
+                        )
 
                     except LoseTrackError:
                         if self.prev_is_keyframe_flag:
                             self.logger.info(
-                                "%s -- New Trial: Failed to track" % log_prefix
+                                "%s -- New Trial: Failed to track, keyframe ID: %d"
+                                % (log_prefix, self.curr_kid + 1)
                             )
-                            # Set the current frame as keyframe and new trial
+                            # Tracking failed. Set current frame as keyframe and start a new trial.
                             self.curr_kid += 1
                             keyframe_msg = create_keyframe_msg(
                                 self.bridge,
@@ -167,7 +183,7 @@ class Tracker:
                                 ref_T_curr=np.eye(4, dtype=np.float32),
                             )
                             keyframe_msgs.append(keyframe_msg)
-                            # Set the tracker information
+                            # Update tracker state
                             self.prev_in_contact_flag = True
                             self.prev_is_keyframe_flag = True
                             self.ref_T_prev = np.eye(4, dtype=np.float32)
@@ -175,8 +191,8 @@ class Tracker:
                             self.ref_frame = frame
                         else:
                             self.logger.info(
-                                "%s -- New Keyframe: Set previous frame as keyframe"
-                                % log_prefix
+                                "%s -- New Keyframe, keyframe ID: %d"
+                                % (log_prefix, self.curr_kid + 1)
                             )
                             # Set the previous frame as keyframe
                             self.curr_kid += 1
@@ -189,12 +205,12 @@ class Tracker:
                                 ref_T_curr=self.ref_T_prev,
                             )
                             keyframe_msgs.append(keyframe_msg)
-                            # Set the tracker information
+                            # Update tracker state
                             self.prev_in_contact_flag = True
                             self.prev_is_keyframe_flag = True
                             self.ref_T_prev = np.eye(4, dtype=np.float32)
                             self.ref_frame = self.prev_frame
-                            # Check if the current frame is a keyframe reletive to the new keyframe
+                            # Check if the current frame can be tracked relative to the new keyframe
                             try:
                                 curr_T_ref = normalflow(
                                     self.ref_frame.N,
@@ -210,19 +226,22 @@ class Tracker:
                                     scr_threshold=self.track_config["scr_threshold"],
                                     ccs_threshold=self.track_config["ccs_threshold"],
                                 )
-                                # The current frame is not a keyframe
+                                # Current frame is tracked successfully (not a keyframe)
                                 self.prev_in_contact_flag = True
                                 self.prev_is_keyframe_flag = False
                                 self.ref_T_prev = np.linalg.inv(curr_T_ref)
                                 self.prev_frame = frame
-                                self.logger.info("%s -- Regular Frame" % log_prefix)
+                                self.logger.info(
+                                    "%s -- Regular Frame: frame ID: %d"
+                                    % (log_prefix, self.curr_fid)
+                                )
 
                             except LoseTrackError:
-                                # NormalFlow failed for two consecutive frames
+                                # Tracking failed. Set current frame as a keyframe and start a new trial.
                                 self.logger.info(
-                                    "%s -- New Trial: Failed to track" % log_prefix
+                                    "%s -- New Trial: Failed to track, keyframe ID: %d"
+                                    % (log_prefix, self.curr_kid + 1)
                                 )
-                                # Set the current frame as keyframe and new trial
                                 self.curr_kid += 1
                                 keyframe_msg = create_keyframe_msg(
                                     self.bridge,
@@ -233,14 +252,14 @@ class Tracker:
                                     ref_T_curr=np.eye(4, dtype=np.float32),
                                 )
                                 keyframe_msgs.append(keyframe_msg)
-                                # Set the tracker information
+                                # Update tracker state
                                 self.prev_in_contact_flag = True
                                 self.prev_is_keyframe_flag = True
                                 self.ref_T_prev = np.eye(4, dtype=np.float32)
                                 self.prev_frame = frame
                                 self.ref_frame = frame
 
-                # Construct the current frame message
+                # Create current frame message
                 frame_msg = create_frame_msg(
                     self.bridge,
                     frame,

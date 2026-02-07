@@ -1,28 +1,46 @@
 import cv2
 import numpy as np
 import open3d as o3d
+from normalflow.utils import wide_remap
 from scipy.ndimage import binary_erosion, distance_transform_edt
-from normalflow.utils import wide_remap, height2pointcloud
 
 
 class Logger:
     """
-    A class that can be used as logger in ROS or printer outside of ROS.
+    A unified logger class.
+    Supports ROS logging, print logging, or no logging.
     """
 
-    def __init__(self, logger=None):
-        self.logger = logger
+    def __init__(self, ros_logger=None, print_output=False):
+        """
+        Initialize the Logger.
+
+        :param ros_logger: ROS logger object; If provided, logs using ROS logger.
+        :param print_output: bool; If True and ros_logger is None, prints to stdout. Otherwise, no output.
+        """
+        self.ros_logger = ros_logger
+        self.print_output = print_output
 
     def info(self, msg):
-        if self.logger is not None:
-            self.logger.info(msg)
-        else:
+        """
+        Log an info message.
+
+        :param msg: str; The message to log.
+        """
+        if self.ros_logger:
+            self.ros_logger.info(msg)
+        elif self.print_output:
             print(msg)
 
     def warning(self, msg):
-        if self.logger is not None:
-            self.logger.warning(msg)
-        else:
+        """
+        Log a warning message.
+
+        :param msg: str; The message to log.
+        """
+        if self.ros_logger:
+            self.ros_logger.warning(msg)
+        elif self.print_output:
             print(msg)
 
 
@@ -30,74 +48,25 @@ def mask2weight(C):
     """
     Given the contact mask, convert it into a weight map.
 
-    :param C: np.ndarray (H, W); the contact mask.
-    :return W: np.ndarray (H, W); the weight map.
+    :param C: np.ndarray (H, W); The contact mask.
+    :return: np.ndarray (H, W); The weight map.
     """
     l = C.shape[0] / 60.0
     W = (np.tanh(distance_transform_edt(C) / l - 3) + 1) / 2.0 * C
     return W.astype(np.float32)
 
 
-def quick_check_overlap(H_ref, C_ref, pointcloud_tar, ref_T_tar, ppmm=0.0634):
+def get_backproj_weights(W_tar, pointcloud_ref, tar_T_ref, ppmm=0.0634):
     """
-    Quickly check if two height maps overlap.
-    :param H_ref: np.ndarray (H, W); the height map of the reference frame.
-    :param C_ref: np.ndarray (H, W); the contact mask of the reference frame.
-    :param pointcloud_tar: np.ndarray (N, 3); the pointcloud of the target frame.
-    :param ref_T_tar: np.ndarray (4, 4); the homogeneous transformation matrix.
-    :param ppmm: float; pixel per millimeter.
-    :return bool; whether the two height maps overlap.
-    """
-    # TODO: If too slow, can subsample the pointcloud
-    # Find the bounding cuboid of the reference frame
-    ys, xs = np.where(C_ref)
-    zs = H_ref[C_ref]
-    x_min, x_max = np.min(xs), np.max(xs)
-    y_min, y_max = np.min(ys), np.max(ys)
-    z_min, z_max = np.min(zs), np.max(zs)
-    width = (x_max - x_min + 1) * ppmm / 1000.0
-    height = (y_max - y_min + 1) * ppmm / 1000.0
-    depth = (z_max - z_min) * ppmm / 1000.0
-    center = np.array(
-        [
-            ((x_min + x_max) / 2.0 - H_ref.shape[1] / 2 + 0.5) * ppmm / 1000.0,
-            ((y_min + y_max) / 2.0 - H_ref.shape[0] / 2 + 0.5) * ppmm / 1000.0,
-            ((z_min + z_max) / 2.0) * ppmm / 1000.0,
-        ]
-    )
-    # Project pointcloud_tar to the cuboid frame
-    pointcloud_tar_backproj = (
-        np.dot(ref_T_tar[:3, :3], pointcloud_tar.T).T + ref_T_tar[:3, 3] - center
-    )
-    is_overlapped = np.any(
-        np.logical_and.reduce(
-            [
-                pointcloud_tar_backproj[:, 0] > -width / 2.0,
-                pointcloud_tar_backproj[:, 0] < width / 2.0,
-                pointcloud_tar_backproj[:, 1] > -height / 2.0,
-                pointcloud_tar_backproj[:, 1] < height / 2.0,
-                pointcloud_tar_backproj[:, 2] > -depth / 2.0,
-                pointcloud_tar_backproj[:, 2] < depth / 2.0,
-            ]
-        )
-    )
-    return is_overlapped
-
-
-def get_backproj_weights(
-    W_tar, pointcloud_ref, tar_T_ref, dist_threshold=1e-3, ppmm=0.0634
-):
-    """
-    Given the height map and weight map of the target frame, return the backprojected weight map
+    Given the weight map of the target frame, return the backprojected weight map
     map to the reference frame.
     This function assumed that the two frames are aligned and overlapped.
 
-    :param W_tar: np.ndarray (H, W); the weight map of the target frame.
-    :param pointcloud_ref: np.ndarray (N, 3); the pointcloud of the reference frame.
-    :param tar_T_ref: np.ndarray (4, 4); the homogeneous transformation matrix.
-    :param ppmm: float; pixel per millimeter.
-    :param dist_threshold: float; the distance threshold that sets the weight too far to zero.
-    :return: np.ndarray (N, 1); the backprojected weight map.
+    :param W_tar: np.ndarray (H, W); The weight map of the target frame.
+    :param pointcloud_ref: np.ndarray (N, 3); The pointcloud of the reference frame.
+    :param tar_T_ref: np.ndarray (4, 4); The homogeneous transformation matrix.
+    :param ppmm: float; Pixels size in milimeters.
+    :return: np.ndarray (N, 1); The backprojected weight map.
     """
     remapped_pointcloud_ref = (
         np.dot(tar_T_ref[:3, :3], pointcloud_ref.T).T + tar_T_ref[:3, 3]
@@ -121,15 +90,15 @@ def get_backproj_weights_and_pointcloud(
     Given the height map and weight map of the target frame, return the backprojected weight map and pointcloud
     map to the reference frame.
 
-    :param H_tar: np.ndarray (H, W); the height map of the target frame.
-    :param W_tar: np.ndarray (H, W); the weight map of the target frame.
-    :param pointcloud_ref: np.ndarray (N, 3); the pointcloud of the reference frame.
-    :param tar_T_ref: np.ndarray (4, 4); the homogeneous transformation matrix.
-    :param ppmm: float; pixel per millimeter.
-    :param dist_threshold: float; the distance threshold that sets the weight too far to zero.
-    :return:
-        weights_tar_backproj: np.ndarray (N, 1); the backprojected weight map.
-        pointcloud_tar_backproj: np.ndarray (N, 3); the backprojected pointcloud.
+    :param H_tar: np.ndarray (H, W); The height map of the target frame.
+    :param W_tar: np.ndarray (H, W); The weight map of the target frame.
+    :param pointcloud_ref: np.ndarray (N, 3); The pointcloud of the reference frame.
+    :param tar_T_ref: np.ndarray (4, 4); The homogeneous transformation matrix.
+    :param ppmm: float; Pixels size in milimeters.
+    :param dist_threshold: float; The distance threshold that sets the weight too far to zero.
+    :return: (np.ndarray, np.ndarray);
+        - weights_tar_backproj: np.ndarray (N, 1); The backprojected weight map.
+        - pointcloud_tar_backproj: np.ndarray (N, 3); The backprojected pointcloud.
     """
     ref_T_tar = np.linalg.inv(tar_T_ref)
     remapped_pointcloud_ref = (
@@ -164,55 +133,15 @@ def get_backproj_weights_and_pointcloud(
     weights_tar_backproj[dist > dist_threshold, 0] = 0.0
     return weights_tar_backproj, pointcloud_tar_backproj
 
-def get_backproj_mask(C_tar, H_ref, tar_T_ref, ppmm=0.0634):
-    """
-    Given the contact mask of the target frame, return the backprojected contact mask to the reference frame.
-
-    :param C_tar: np.ndarray (H, W); the contact map of the target frame.
-    :param H_ref: np.ndarray (H, W); the height map of the reference frame.
-    :param tar_T_ref: np.ndarray (4, 4); the homogeneous transformation matrix from the reference frame to the target frame.
-    :param ppmm: float; pixel per millimeter.
-    :return:
-        C_tar_backproj: np.ndarray (H, W); the backprojected contact mask.
-    """
-    # Use float32 instead of float64
-    H_ref = H_ref.astype(np.float32)
-    tar_T_ref = tar_T_ref.astype(np.float32)
-    # Get the remapped pixels
-    pointcloud_ref = height2pointcloud(H_ref, np.ones_like(H_ref), ppmm)
-    remapped_pointcloud_ref = (
-        np.dot(tar_T_ref[:3, :3], pointcloud_ref.T).T + tar_T_ref[:3, 3]
-    )
-    remapped_xx_ref = (
-        remapped_pointcloud_ref[:, 0] * 1000.0 / ppmm + H_ref.shape[1] / 2 - 0.5
-    )
-    remapped_yy_ref = (
-        remapped_pointcloud_ref[:, 1] * 1000.0 / ppmm + H_ref.shape[0] / 2 - 0.5
-    )
-    # Get the backprojected laplacians and contact mask
-    C_tar_backproj = (
-        wide_remap(C_tar.astype(np.float32), remapped_xx_ref, remapped_yy_ref)[:, 0]
-        > 0.5
-    )
-    C_tar_backproj = C_tar_backproj.reshape(H_ref.shape)
-    xx_region = np.logical_and(remapped_xx_ref >= 0, remapped_xx_ref < C_tar.shape[1])
-    yy_region = np.logical_and(remapped_yy_ref >= 0, remapped_yy_ref < C_tar.shape[0])
-    xy_region = np.logical_and(xx_region, yy_region).reshape(C_tar.shape)
-    erode_size = max(C_tar.shape[0] // 48, 2)
-    C_tar_backproj = np.logical_and(C_tar_backproj, xy_region)
-    C_tar_backproj = binary_erosion(
-        C_tar_backproj, structure=np.ones((erode_size, erode_size))
-    )
-    return C_tar_backproj
 
 def pointcloud2mesh(pointcloud, C):
     """
     Given a pointcloud and the contact mask, create a triangle mesh.
     Note that the pointcloud need to be in the flattened image ordering or masked pointcloud.
 
-    :param pointcloud: np.2darray (N, 3); the pointcloud.
-    :param C: np.2darray (H, W); the contact mask.
-    :return mesh: o3d.geometry.TriangleMesh; the triangle mesh.
+    :param pointcloud: np.ndarray (N, 3); The pointcloud.
+    :param C: np.ndarray (H, W); The contact mask.
+    :return: open3d.geometry.TriangleMesh; The triangle mesh.
     """
     if len(pointcloud) == C.shape[0] * C.shape[1]:
         pointcloud = pointcloud[C.flatten()]
@@ -246,14 +175,24 @@ def pointcloud2mesh(pointcloud, C):
 
 
 def matrix_in_mm(T_m):
-    """Matrix in meters to matrix in millimeters."""
+    """
+    Matrix in meters to matrix in millimeters.
+
+    :param T_m: np.ndarray (4, 4); Matrix in meters.
+    :return: np.ndarray (4, 4); Matrix in millimeters.
+    """
     T_mm = T_m.copy()
     T_mm[:3, 3] *= 1000
     return T_mm
 
 
 def matrix_in_m(T_mm):
-    """Matrix in millimeters to matrix in meters."""
+    """
+    Matrix in millimeters to matrix in meters.
+
+    :param T_mm: np.ndarray (4, 4); Matrix in millimeters.
+    :return: np.ndarray (4, 4); Matrix in meters.
+    """
     T_m = T_mm.copy()
     T_m[:3, 3] /= 1000
     return T_m
@@ -263,8 +202,8 @@ def laplacian2gray(L):
     """
     Get the gray image from the laplacian map.
 
-    :param L: np.ndarray (H, W); the laplacian map.
-    :return: np.ndarray (H, W); the gray image.
+    :param L: np.ndarray (H, W); The laplacian map.
+    :return: np.ndarray (H, W); The gray image.
     """
     L = ((L + 0.7) / 1.4) * 255
     return L.astype(np.uint8)
@@ -272,13 +211,14 @@ def laplacian2gray(L):
 
 def get_sift_features(L, C, sift):
     """
-    Calculate the SIFT feature from the laplacian of the normal map.
+    Calculate the SIFT feature from the laplacian map.
 
-    :param L: np.2darray (H, W); the laplacian map.
-    :param C: np.2darray (H, W); the contact mask.
-    :param sift: cv2.SIFT_create(); the SIFT object.
-    :return kp: list; the keypoints.
-            des: np.2darray (N, 128); the descriptors.
+    :param L: np.ndarray (H, W); The laplacian map.
+    :param C: np.ndarray (H, W); The contact mask.
+    :param sift: cv2.SIFT; The SIFT object.
+    :return: (list, np.ndarray);
+        - kp: list; The keypoints.
+        - des: np.ndarray (N, 128); The descriptors.
     """
     # Speed up feature extraction by only extracting features within the contact mask
     ys, xs = np.where(C)
@@ -308,12 +248,13 @@ def get_sift_features(L, C, sift):
 
 def M2T(M, w, h, ppmm):
     """
-    Convert a 2D affine transformation matrix to a 3D transformation matrix,
-    :param M: (2, 3) numpy.ndarray, 2D affine transformation matrix.
-    :param w: int, width of the image.
-    :param h: int, height of the image.
-    :param ppmm: float, pixels per millimeter.
-    :return T: (4, 4) numpy.ndarray, 3D transformation matrix.
+    Convert a 2D affine transformation matrix to a 3D transformation matrix.
+
+    :param M: np.ndarray (2, 3); 2D affine transformation matrix.
+    :param w: int; Width of the image.
+    :param h: int; Height of the image.
+    :param ppmm: float; Pixels size in milimeters.
+    :return: np.ndarray (4, 4); 3D transformation matrix.
     """
     tx = (M[0, 2] + (M[0, 0] * w / 2 + M[0, 1] * h / 2) - w / 2) * ppmm / 1000.0
     ty = (M[1, 2] + (M[1, 0] * w / 2 + M[1, 1] * h / 2) - h / 2) * ppmm / 1000.0

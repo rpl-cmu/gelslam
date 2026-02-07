@@ -1,24 +1,26 @@
-import numpy as np
 import argparse
 import os
+
+import numpy as np
 import open3d as o3d
 import yaml
 
-from gelslam.core.parent_groups_info import ParentGroupsInfo
-from gelslam.core.keyframe import KeyFrameDB
-from gelslam.core.pose_graph import PoseGraph, PoseGraphSolutions
 from gelslam.core.coverage_graph import CoverageGraph
-from gelslam.utils import matrix_in_m
+from gelslam.core.keyframe import KeyFrameDB
+from gelslam.core.parent_groups_info import ParentGroupsInfo
+from gelslam.core.pose_graph import PoseGraph, PoseGraphSolutions
+from gelslam.utils import Logger, matrix_in_m
 
 
-# def create_edge_mesh(point1, point2, color=[0, 0, 0], radius=0.00015):
 def create_edge_mesh(point1, point2, color=[0, 0, 0], radius=0.00005):
     """
-    Create the edge mesh with the cylinder mesh.
-    :param point1: np.ndarray (3,); the first point position (in meters).
-    :param point2: np.ndarray (3,); the second point position (in meters).
-    :param color: list of float; the color of the edge.
-    :param radius: float; the radius of the edge (in meters).
+    Creates a cylinder mesh representing an edge between two points.
+
+    :param point1: np.ndarray (3,); The first point position (in meters).
+    :param point2: np.ndarray (3,); The second point position (in meters).
+    :param color: list of float; The color of the edge.
+    :param radius: float; The radius of the edge (in meters).
+    :return: open3d.geometry.TriangleMesh; The edge mesh.
     """
     height = np.linalg.norm(point2 - point1) + 1e-5
     edge_mesh = o3d.geometry.TriangleMesh.create_cylinder(radius=radius, height=height)
@@ -26,7 +28,7 @@ def create_edge_mesh(point1, point2, color=[0, 0, 0], radius=0.00005):
     midpoint = (point1 + point2) / 2
     direction = (point2 - point1) / height
     default_direction = np.array([0, 0, 1])
-    # Compute the rotation matrix to align the cylinder
+    # Compute rotation matrix to align the cylinder
     if not np.allclose(direction, default_direction):
         axis = np.cross(default_direction, direction)
         axis_length = np.linalg.norm(axis)
@@ -41,7 +43,10 @@ def create_edge_mesh(point1, point2, color=[0, 0, 0], radius=0.00005):
 
 
 def main():
-    # Argument Parser
+    """
+    Main function to visualize the pose graph.
+    """
+    # Parse arguments
     parser = argparse.ArgumentParser(description="Plot the pose graph.")
     parser.add_argument(
         "-d",
@@ -67,26 +72,27 @@ def main():
     )
     args = parser.parse_args()
 
-    # Read the configuration
+    # Load configuration
     with open(args.config_path, "r") as f:
         config = yaml.safe_load(f)
         ppmm = config["device_config"]["ppmm"]
-    # Load the reconstruction data
+    # Load states
     data_dir = args.data_dir
     load_dir = os.path.join(data_dir, args.method)
+    logger = Logger()
     pose_graph = PoseGraph.load(load_dir)
-    keyframedb = KeyFrameDB.load(load_dir)
+    keyframedb = KeyFrameDB.load(load_dir, logger)
     parent_groups_info = ParentGroupsInfo.load(load_dir)
     pose_graph_solutions = PoseGraphSolutions.load(load_dir)
     updated_size = pose_graph_solutions.size()
-    # Find the active kidxs
+    # Find the keyframes from the largest connected group of keyframes
     active_parent_group = parent_groups_info.get_largest_parent_group()
     active_kidxs = []
     for kidx in range(updated_size):
         parent_group = parent_groups_info.get_parent_group(kidx, keyframedb)
         if parent_group == active_parent_group:
             active_kidxs.append(kidx)
-    # Construct the coverage graph
+    # Construct coverage graph
     coverage_graph = CoverageGraph(config)
     coverage_graph.add_new_coverage_nodes(0, updated_size)
     coverage_graph.update_wrt_new_keyframes(
@@ -96,7 +102,7 @@ def main():
         parent_groups_info,
     )
 
-    # Obtain the pose of each keyframe's patch center
+    # Calculate the pose of each keyframe's patch center
     keyframe_centers = []
     for kidx in range(updated_size):
         keyframe = keyframedb[kidx]
@@ -114,29 +120,23 @@ def main():
         keyframe_centers.append(center)
 
     vis_objects = []
-    # Plot the nodes
+    # Create node meshes
     for kidx in range(updated_size):
         parent_group = parent_groups_info.get_parent_group(kidx, keyframedb)
         if parent_group != active_parent_group:
             continue
         if coverage_graph[kidx].is_active:
-            # node_mesh = o3d.geometry.TriangleMesh.create_sphere(radius=0.00015)
             node_mesh = o3d.geometry.TriangleMesh.create_sphere(radius=0.0004)
             node_mesh.paint_uniform_color([0, 1, 0])
         else:
-            # node_mesh = o3d.geometry.TriangleMesh.create_sphere(radius=0.00015)
             node_mesh = o3d.geometry.TriangleMesh.create_sphere(radius=0.00025)
             node_mesh.paint_uniform_color([0, 0, 0])
         node_mesh.translate(keyframe_centers[kidx])
         vis_objects.append(node_mesh)
-    # Plot the edges
-    if args.method == "robust_single_threaded":
-        outlier_factor_idxs = np.load(os.path.join(load_dir, "outlier_factors.npy"))
-    else:
-        outlier_factor_idxs = []
+    # Create edge meshes
     for i in range(pose_graph.graph.size()):
         factor = pose_graph.graph.at(i)
-        if len(factor.keys()) == 1 or i in outlier_factor_idxs:
+        if len(factor.keys()) == 1:
             continue
         kidx1, kidx2 = factor.keys()
         parent_group1 = parent_groups_info.get_parent_group(kidx1, keyframedb)
@@ -150,7 +150,7 @@ def main():
         )
         vis_objects.append(edge_mesh)
 
-    # Plot the mesh
+    # Load the reconstructed mesh
     mesh = o3d.io.read_triangle_mesh(os.path.join(load_dir, "reconstructed_mesh.ply"))
     mesh.compute_vertex_normals()
     mesh.paint_uniform_color([0.3, 0.3, 0.3])
