@@ -9,8 +9,8 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        ("share/" + package_name + "/launch", ["launch/saved_video_launch.py"]),
-        ("share/" + package_name + "/launch", ["launch/gelsight_launch.py"]),
+        ("share/" + package_name + "/launch", ["launch/live_replay_demo_launch.py"]),
+        ("share/" + package_name + "/launch", ["launch/live_demo_launch.py"]),
         ("share/" + package_name + "/config", ["config/config.yaml"]),
         (
             "share/" + package_name + "/resources/example_calibration/model",
@@ -32,7 +32,6 @@ setup(
             "pose_graph_node = gelslam.nodes.pose_graph_node:main",
             "visualizer_node = gelslam.nodes.visualizer_node:main",
             "gelslam_offline = gelslam.scripts.gelslam_offline:main",
-            "gelslam_reconstruct = gelslam.scripts.reconstruct:reconstruct",
             "visualize_pose_graph = gelslam.scripts.visualize_pose_graph:main",
         ],
     },

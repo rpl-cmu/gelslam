@@ -5,7 +5,7 @@ import cv2
 import rclpy
 import yaml
 from cv_bridge import CvBridge
-from gs_sdk.gs_device import FastCamera
+from gs_sdk.gs_device import Camera, FastCamera
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -40,15 +40,27 @@ class GelSightStreamerNode(Node):
             self.get_parameter("data_dir").get_parameter_value().string_value
         )
         self.data_dir = os.path.abspath(os.path.expanduser(self.data_dir))
+        # Get the streamer
+        self.declare_parameter("streamer", "ffmpeg")
+        self.streamer = (
+            self.get_parameter("streamer").get_parameter_value().string_value
+        )
+
         # Create the directory for other nodes to save information
         self.save_dir = os.path.join(self.data_dir, "gelslam_online")
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
         # Initialize and connect to the device
-        self.device = FastCamera(
-            device_name, imgh, imgw, raw_imgh, raw_imgw, framerate, verbose=False
-        )
-        self.device.connect(verbose=False)
+        if self.streamer == "ffmpeg":
+            self.device = FastCamera(
+                device_name, imgh, imgw, raw_imgh, raw_imgw, framerate, verbose=False
+            )
+            self.device.connect(verbose=False)
+        elif self.streamer == "cv2":
+            self.device = Camera(device_name, imgh, imgw)
+            self.device.connect()
+        else:
+            raise ValueError("Invalid streamer: {}".format(self.streamer))
         # The video writer
         self.video_writer = cv2.VideoWriter(
             os.path.join(self.data_dir, "gelsight.avi"),

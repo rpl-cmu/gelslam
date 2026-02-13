@@ -55,6 +55,12 @@ def main():
         action="store_true",
         help="Render the reconstruction process",
     )
+    parser.add_argument(
+        "-s",
+        "--save_gelslam_state",
+        action="store_true",
+        help="Save the gelslam state",
+    )
 
     args = parser.parse_args()
 
@@ -88,7 +94,9 @@ def main():
 
     # Initialize objects
     logger = Logger(print_output=True)
-    tracker = Tracker(calib_model_path, config, logger)
+    tracker = Tracker(
+        calib_model_path, config, skip_background_check=True, logger=logger
+    )
     keyframedb = KeyFrameDB(ppmm, logger)
     pose_graph = PoseGraph(config)
     pose_graph_solutions = PoseGraphSolutions()
@@ -268,11 +276,12 @@ def main():
     logger.info("Reconstructed mesh saved in %s" % (save_path))
 
     # Save states
-    tracker.save(save_dir)
-    keyframedb.save(save_dir)
-    pose_graph.save(save_dir)
-    pose_graph_solutions.save(save_dir)
-    parent_groups_info.save(save_dir)
+    if args.save_gelslam_state:
+        tracker.save(save_dir)
+        keyframedb.save(save_dir)
+        pose_graph.save(save_dir)
+        pose_graph_solutions.save(save_dir)
+        parent_groups_info.save(save_dir)
     logger.info("Done reconstructing!")
 
 

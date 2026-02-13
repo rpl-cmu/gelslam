@@ -49,12 +49,24 @@ class TrackerNode(Node):
         data_dir = self.get_parameter("data_dir").get_parameter_value().string_value
         data_dir = os.path.abspath(os.path.expanduser(data_dir))
         self.save_dir = os.path.join(data_dir, "gelslam_online")
+        # Get the skip background check flag
+        self.declare_parameter("skip_background_check", False)
+        self.skip_background_check = (
+            self.get_parameter("skip_background_check").get_parameter_value().bool_value
+        )
+        # Get the save gelslam state flag
+        self.declare_parameter("save_gelslam_state", False)
+        self.save_gelslam_state = (
+            self.get_parameter("save_gelslam_state").get_parameter_value().bool_value
+        )
 
         # The logger
         self.logger = Logger(ros_logger=self.get_logger())
 
         # Initialize tracker
-        self.tracker = Tracker(calib_model_path, config, logger=self.logger)
+        self.tracker = Tracker(
+            calib_model_path, config, self.skip_background_check, logger=self.logger
+        )
 
         # Initialize subscribers
         self.create_subscription(Image, "image", self.image_callback, 1)
@@ -87,7 +99,8 @@ class TrackerNode(Node):
         # Clean up node
         super().destroy_node()
         # Save tracker state
-        self.tracker.save(self.save_dir)
+        if self.save_gelslam_state:
+            self.tracker.save(self.save_dir)
 
 
 def main(args=None):

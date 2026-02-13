@@ -45,16 +45,21 @@ class PoseGraphNode(Node):
         )
         config_path = os.path.abspath(os.path.expanduser(config_path))
         with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+            self.config = yaml.safe_load(f)
         # Get the directory to save the pose graph states
         self.declare_parameter("data_dir", "")
         data_dir = self.get_parameter("data_dir").get_parameter_value().string_value
         data_dir = os.path.abspath(os.path.expanduser(data_dir))
         self.save_dir = os.path.join(data_dir, "gelslam_online")
-        # Get the online rendering flag
-        self.declare_parameter("online_rendering", True)
-        self.online_rendering = (
-            self.get_parameter("online_rendering").get_parameter_value().bool_value
+        # Get the rendering flag
+        self.declare_parameter("rendering", True)
+        self.rendering = (
+            self.get_parameter("rendering").get_parameter_value().bool_value
+        )
+        # Get the save gelslam states flag
+        self.declare_parameter("save_gelslam_states", False)
+        self.save_gelslam_states = (
+            self.get_parameter("save_gelslam_states").get_parameter_value().bool_value
         )
 
         # The overall running flag
@@ -67,15 +72,15 @@ class PoseGraphNode(Node):
         # K thread writes (appending), L thread reads
         self.add_keyframe_lock = threading.Lock()
         self.keyframedb = KeyFrameDB(
-            ppmm=config["device_config"]["ppmm"], logger=self.logger
+            ppmm=self.config["device_config"]["ppmm"], logger=self.logger
         )
 
         # Parent groups, pose graph, pose graph solutions, and coverage graph are updated in L thread.
         self.parent_groups_info = ParentGroupsInfo()
-        self.pose_graph = PoseGraph(config)
+        self.pose_graph = PoseGraph(self.config)
         self.pose_graph_solutions = PoseGraphSolutions()
-        self.coverage_graph = CoverageGraph(config)
-        if self.online_rendering:
+        self.coverage_graph = CoverageGraph(self.config)
+        if self.rendering:
             self.visible_coverage_graph_pub = self.create_publisher(
                 VisibleCoverageGraphMsg, "visible_coverage_graph", 1
             )
@@ -177,7 +182,7 @@ class PoseGraphNode(Node):
                 self.pose_graph_solutions,
             )
             # Publish the visible coverage graph message for rendering
-            if self.online_rendering:
+            if self.rendering:
                 self.visible_coverage_graph_pub.publish(
                     create_visible_coverage_graph_msg(
                         tar_kidx,
@@ -200,7 +205,7 @@ class PoseGraphNode(Node):
                 )
             )
 
-    def merge_mesh(self):
+    def merge_and_save_mesh(self):
         """
         Find the keyframes from the largest connected group of keyframes.
         Merging the meshes and save the reconstructed mesh.
@@ -214,15 +219,24 @@ class PoseGraphNode(Node):
             )
             if parent_group == active_parent_group:
                 active_kidxs.append(kidx)
+        # Construct a new and clean coverage graph
+        coverage_graph = CoverageGraph(self.config)
+        coverage_graph.add_new_coverage_nodes(0, updated_size)
+        coverage_graph.update_wrt_new_keyframes(
+            active_kidxs,
+            self.keyframedb,
+            self.pose_graph_solutions,
+            self.parent_groups_info,
+        )
         # Merging the meshes
         merged_mesh = o3d.geometry.TriangleMesh()
         for kidx in active_kidxs:
             keyframe = self.keyframedb[kidx]
-            if not self.coverage_graph[kidx].is_active:
+            if not coverage_graph[kidx].is_active:
                 continue
             adjusted_pointcloud = compute_adjusted_pointcloud(
                 kidx,
-                self.coverage_graph[kidx].neighbor_kidxs,
+                coverage_graph[kidx].neighbor_kidxs,
                 self.keyframedb,
                 self.pose_graph_solutions,
             )
@@ -249,13 +263,14 @@ class PoseGraphNode(Node):
         self.loop_closure_thread.join()
 
         # Merge the meshes for reconstruction
-        self.merge_mesh()
+        self.merge_and_save_mesh()
 
         # Save pose graph states
-        self.pose_graph.save(self.save_dir)
-        self.keyframedb.save(self.save_dir)
-        self.parent_groups_info.save(self.save_dir)
-        self.pose_graph_solutions.save(self.save_dir)
+        if self.save_gelslam_states:
+            self.pose_graph.save(self.save_dir)
+            self.keyframedb.save(self.save_dir)
+            self.parent_groups_info.save(self.save_dir)
+            self.pose_graph_solutions.save(self.save_dir)
 
 
 def main(args=None):

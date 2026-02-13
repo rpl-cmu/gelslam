@@ -1,6 +1,7 @@
 import os
 import pickle
 
+import cv2
 import numpy as np
 from cv_bridge import CvBridge
 from gs_sdk.gs_reconstruct import Reconstructor
@@ -15,12 +16,13 @@ class Tracker:
     Handles frame tracking.
     """
 
-    def __init__(self, calib_model_path, config, logger):
+    def __init__(self, calib_model_path, config, skip_background_check, logger):
         """
         Initialize the Tracker.
 
         :param calib_model_path: str; The path to the calibration model.
         :param config: dict; The configuration.
+        :param skip_background_check: bool; Whether to skip the background check step.
         :param logger: Logger; The logger object.
         """
         self.logger = logger
@@ -30,6 +32,8 @@ class Tracker:
         self.bridge = CvBridge()
         # Initialize reconstructor
         self.recon = Reconstructor(calib_model_path)
+        # Skip background check flag
+        self.skip_background_check = skip_background_check
 
         # Store initial images as background
         self.bg_images = []
@@ -93,7 +97,36 @@ class Tracker:
             self.bg_images.append(image)
             if len(self.bg_images) == 10:
                 self.logger.info("%s -- Background images collected" % log_prefix)
+
                 self.bg_image = np.mean(self.bg_images, axis=0)
+                # Background check by user
+                if not self.skip_background_check:
+                    display_image = self.bg_image.copy().astype(np.uint8)
+                    display_image = cv2.resize(
+                        display_image,
+                        (display_image.shape[1] * 3, display_image.shape[0] * 3),
+                    )
+                    cv2.putText(
+                        display_image,
+                        "Ensure no contact. Press 'y' to confirm, 'n' to reject.",
+                        (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0,
+                        (0, 0, 0),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                    cv2.imshow("Background image verification", display_image)
+                    while True:
+                        key = cv2.waitKey(0) & 0xFF
+                        if key == ord("n"):
+                            raise SystemExit(
+                                "User aborted: contact detected in background image."
+                            )
+                        elif key == ord("y"):
+                            break
+                    cv2.destroyWindow("Background image verification")
+                # Load the confirmed background
                 self.recon.load_bg(self.bg_image)
             return False, None
         else:

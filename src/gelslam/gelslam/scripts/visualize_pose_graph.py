@@ -66,7 +66,7 @@ def main():
         "-m",
         "--method",
         type=str,
-        default="gelslam_online",
+        required=True,
         choices=["gelslam_online", "gelslam_offline"],
         help="method of running the reconstruction",
     )
